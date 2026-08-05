@@ -19,12 +19,12 @@ lint:
 	$(GO) vet ./...
 	gofmt -l . | tee /dev/stderr | (! read)
 
-## verify-pin reports whether the measured checkout matches pins.env.
+## verify-pin reports whether the required module revision matches pins.env.
 verify-pin:
 	@. ./pins.env; \
-	actual=$$(git -C ../provin.oss rev-parse HEAD 2>/dev/null); \
-	if [ "$$actual" = "$$OSS_REF" ]; then \
-		echo "pin ok: $$OSS_REF"; \
-	else \
-		echo "PIN DRIFT: pins.env=$$OSS_REF checkout=$$actual"; exit 1; \
-	fi
+	pseudo=$$($(GO) list -m -f '{{.Version}}' github.com/provin-line/oss); \
+	short=$${pseudo##*-}; \
+	case "$$OSS_REF" in \
+		"$$short"*) echo "pin ok: $$OSS_REF (module $$pseudo)";; \
+		*) echo "PIN DRIFT: pins.env=$$OSS_REF module=$$pseudo"; exit 1;; \
+	esac
