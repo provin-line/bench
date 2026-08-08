@@ -338,12 +338,27 @@ type gateOptions struct {
 	// cache mutex is contended exactly as a deployment would contend it. See
 	// cached_test.go for what the mode measures and excludes.
 	cached bool
+	// cacheTTL is the DID cache's entry lifetime when cached is set. Zero means
+	// the benchmark default (an hour — far longer than any run, so the
+	// measurements see the steady warm state, never TTL-expiry churn). The
+	// issuer-stop scenario (survivability_test.go) sets a short TTL to cross
+	// the freshness window's edge inside one test.
+	cacheTTL time.Duration
 	// sharedDID, when set, replaces the fixture-local DID stack entirely
 	// (delaying resolver + optional bound + cache built once per ring).
 	sharedDID resolver.Resolver
 	// sharedDIDDelay is the shared stack's delay/counter; only ring slot 0
 	// carries it into roundTrips so a ring total counts each call once.
 	sharedDIDDelay *gateDelay
+}
+
+// effectiveCacheTTL is the DID cache TTL this option set selects: cacheTTL
+// when set, else the benchmark default.
+func (o gateOptions) effectiveCacheTTL() time.Duration {
+	if o.cacheTTL != 0 {
+		return o.cacheTTL
+	}
+	return time.Hour
 }
 
 // gateChain is one signed lineage plus the DID documents that authenticate it.
@@ -519,9 +534,10 @@ func (c *gateChain) fixture(tb testing.TB, opts gateOptions) *gateFixture {
 			didResolver = opts.didWrap(didResolver)
 		}
 		if opts.cached {
-			// TTL far longer than any benchmark run: the measured state is
-			// the steady warm cache, not TTL-expiry churn (cached_test.go).
-			cachedResolver, cacheErr := cache.New(didResolver, cache.Config{TTL: time.Hour})
+			// TTL far longer than any benchmark run unless a scenario narrows
+			// it: the measured state is the steady warm cache, not TTL-expiry
+			// churn (cached_test.go).
+			cachedResolver, cacheErr := cache.New(didResolver, cache.Config{TTL: opts.effectiveCacheTTL()})
 			if cacheErr != nil {
 				tb.Fatalf("cache.New: %v", cacheErr)
 			}
@@ -651,7 +667,7 @@ func newGateRing(tb testing.TB, depth int, opts gateOptions) []*gateFixture {
 		if opts.didWrap != nil {
 			stack = opts.didWrap(stack)
 		}
-		cachedResolver, cacheErr := cache.New(stack, cache.Config{TTL: time.Hour})
+		cachedResolver, cacheErr := cache.New(stack, cache.Config{TTL: opts.effectiveCacheTTL()})
 		if cacheErr != nil {
 			tb.Fatalf("cache.New: %v", cacheErr)
 		}
