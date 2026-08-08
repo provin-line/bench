@@ -23,6 +23,14 @@ of node components").
    `Benchmark*` functions. What goes upstream: anything whose failure means the
    product is wrong rather than the measurement being stale.
 
+   One narrow exception: composed-gate *scenario observations* (e.g.
+   `gate/survivability_test.go`), whose subject is the composition itself —
+   posture-dependent behaviour that no upstream package test can express,
+   because the assembled gate exists only here. Each such scenario states in
+   its file header which per-package invariants it rests on and where those
+   are pinned upstream; anything in it whose failure would mean a single
+   package is wrong still belongs in `provin.oss`.
+
 2. **Public API only.** Construct everything through `provin.oss`'s exported
    packages. A benchmark that needs an unexported identifier is measuring an
    internal, and an internal's cost is not a contract — either the surface
