@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/provin-line/oss/did"
+	"github.com/provin-line/oss/pipeline/contract"
 	"github.com/provin-line/oss/resolver"
 )
 
@@ -33,9 +34,12 @@ import (
 //
 // Like the accounting and busy correctness gates, this is a composed-gate
 // observation no upstream package test can express: the per-package cache
-// invariants (within-TTL hits, absolute expiry, no serve-stale) are pinned in
-// provin.oss resolver/cache's own tests; what is pinned HERE is what those
-// invariants mean for a whole delivery through the assembled gate.
+// invariants are pinned in provin.oss resolver/cache's own tests —
+// TestResolveCachesWithinTTLAndIsolatesCallers (within-TTL hits),
+// TestTTLIsAbsoluteFromFillAndHitsDoNotRefresh (absolute expiry),
+// TestExpiredEntryIsNeverServed and TestErrorsAreNotCached (no serve-stale) —
+// and what is pinned HERE is what those invariants mean for a whole delivery
+// through the assembled gate.
 
 // stoppableDIDResolver serves documents until stopped, then fails every
 // resolution — the issuer's DID endpoint going away.
@@ -52,7 +56,22 @@ func (r *stoppableDIDResolver) Resolve(ctx context.Context, didString string) (*
 		r.refused.Add(1)
 		return nil, fmt.Errorf("issuer DID infrastructure stopped: %s", didString)
 	}
+	if r.next == nil {
+		return nil, fmt.Errorf("stoppableDIDResolver: next resolver not wired (construct via gateOptions.didWrap)")
+	}
 	return r.next.Resolve(ctx, didString)
+}
+
+// deliverStatus runs one occurrence and returns its terminal status, so a
+// scenario can pin the exact conservative-stop shape rather than "some
+// failure". A transport-level error from Process itself fails the test.
+func (f *gateFixture) deliverStatus(tb testing.TB, ctx context.Context) contract.Status {
+	tb.Helper()
+	result, err := f.processor.Process(ctx, f.wire)
+	if err != nil {
+		tb.Fatalf("process at depth %d: %v", f.depth, err)
+	}
+	return result.Status
 }
 
 // TestGateIssuerStopUncached pins the default posture: a chain that verified
@@ -78,11 +97,9 @@ func TestGateIssuerStopUncached(t *testing.T) {
 			}
 
 			stop.stopped.Store(true)
-			err := fixture.deliverErr(ctx)
-			if err == nil {
-				t.Fatal("delivery accepted after issuer stop in the uncached posture; want a conservative stop")
+			if got := fixture.deliverStatus(t, ctx); got != contract.StatusErrored {
+				t.Fatalf("uncached post-stop delivery status = %v, want %v (conservative error stop)", got, contract.StatusErrored)
 			}
-			t.Logf("uncached post-stop delivery failed as: %v", err)
 			if _, got := fixture.writer.snapshot(); got != 1 {
 				t.Errorf("writer calls after stopped delivery = %d, want 1 (no delivery on failure)", got)
 			}
@@ -173,11 +190,9 @@ func TestGateIssuerStopCached(t *testing.T) {
 			// Beyond the freshness window: entries have expired, there is no
 			// serve-stale-on-error, and the issuer is gone.
 			time.Sleep(ttl + 200*time.Millisecond)
-			err := fixture.deliverErr(ctx)
-			if err == nil {
-				t.Fatal("delivery accepted beyond the freshness window with the issuer stopped; want a conservative stop")
+			if got := fixture.deliverStatus(t, ctx); got != contract.StatusErrored {
+				t.Fatalf("cached post-TTL delivery status = %v, want %v (conservative error stop)", got, contract.StatusErrored)
 			}
-			t.Logf("cached post-TTL delivery failed as: %v", err)
 			if _, got := fixture.writer.snapshot(); got != 2 {
 				t.Errorf("writer calls after post-TTL delivery = %d, want 2 (no delivery on failure)", got)
 			}
