@@ -68,9 +68,9 @@ make test    # the harness's own correctness gates
 make bench   # every benchmark, 5 samples
 ```
 
-`go.mod` currently carries a `replace` to the sibling `provin.oss` checkout in
-this agent scope, because the measured revision is not yet on a public branch.
-See `pins.env`.
+`go.mod` requires the `provin.oss` release `pins.env` names by SHA; `make
+verify-pin` checks the two agree. Moving the pin re-runs the affected
+benchmarks and records the new figures in the same commit (rule 3).
 
 ## Out of scope for this repository
 

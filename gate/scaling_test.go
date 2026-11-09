@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"github.com/provin-line/oss/appraisal/inputcapture"
 	"github.com/provin-line/oss/crypto"
 	"github.com/provin-line/oss/crypto/ed25519"
+	"github.com/provin-line/oss/decisionrecord"
 	"github.com/provin-line/oss/did"
 	"github.com/provin-line/oss/pipeline/contract"
 	"github.com/provin-line/oss/pipeline/sink"
@@ -70,8 +73,10 @@ import (
 // Latency injection models per-hop delay only — not bandwidth, connection
 // setup, or TLS. The ingress store is a no-op, where production performs a
 // synchronous StoreVC RPC plus audit-queue registration; receipt issuance is
-// absent. Absolute figures therefore remain a LOWER bound on a networked
-// deployment.
+// absent. The decision record each delivery writes (the node's default: every
+// decision, to the log) is built, filtered and formatted in the path, but the
+// formatted entry is discarded, so the log's I/O is excluded. Absolute figures
+// therefore remain a LOWER bound on a networked deployment.
 
 const (
 	gateOwnerDID      = "did:dplaax:reg:org:gatebench"
@@ -104,7 +109,7 @@ func rawHash(data []byte) string {
 // encode produces the wire envelope a sink consumes.
 func encode(tb testing.TB, cred *vc.PipelinePassCredential, payload []byte) []byte {
 	tb.Helper()
-	wire, err := envelopecodec.New().MarshalEnvelope(&contract.Envelope{
+	wire, err := newCodec(tb).MarshalEnvelope(&contract.Envelope{
 		Credential: cred,
 		Payload:    payload,
 		SequenceNo: 1,
@@ -113,6 +118,38 @@ func encode(tb testing.TB, cred *vc.PipelinePassCredential, payload []byte) []by
 		tb.Fatalf("encode envelope: %v", err)
 	}
 	return wire
+}
+
+// newCodec is the envelope codec with the node's default bounds (1 MiB for a
+// credential and for an inline payload), as cmd/pipeline builds it from its
+// configuration.
+func newCodec(tb testing.TB) *envelopecodec.Codec {
+	tb.Helper()
+	codec, err := envelopecodec.New(envelopecodec.Limits{
+		MaxCredentialSize:    1 << 20,
+		MaxInlinePayloadSize: 1 << 20,
+	})
+	if err != nil {
+		tb.Fatalf("envelopecodec.New: %v", err)
+	}
+	return codec
+}
+
+// newDecisionRecorder is the recorder at the node's default level (all) and
+// sink (log): every delivery decision is written as a record, and a record
+// that cannot be written refuses the delivery. The log entry is formatted as
+// the node's text log would be and then discarded, so the record's
+// construction, filtering and formatting are in the measured path and the
+// log's I/O is not. (The log sink refuses a logger that takes no info
+// entries, so a discarding handler cannot stand in.)
+func newDecisionRecorder(tb testing.TB) decisionrecord.Recorder {
+	tb.Helper()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rec, err := decisionrecord.NewFilter(decisionrecord.LevelAll, decisionrecord.NewLog(logger), logger)
+	if err != nil {
+		tb.Fatalf("decisionrecord.NewFilter: %v", err)
+	}
+	return rec
 }
 
 // noopIngressStore stands in for the ingress retention step. Production performs
@@ -571,8 +608,9 @@ func (c *gateChain) fixture(tb testing.TB, opts gateOptions) *gateFixture {
 	cfg := sink.Config{
 		Strategy:         contract.VerificationAdjacent,
 		Kind:             contract.SinkProduction,
-		Codec:            envelopecodec.New(),
+		Codec:            newCodec(tb),
 		Appraiser:        appraiser,
+		DecisionRecorder: newDecisionRecorder(tb),
 		AgentBoundaryID:  gateBoundaryID,
 		Store:            noopIngressStore{},
 		Writer:           noopWriter{},
