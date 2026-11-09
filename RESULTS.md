@@ -12,15 +12,16 @@ the number excludes; the benchmark's own doc comment says what it models.
   samples. Round trips (`rt/op`) and allocations are deterministic.
 - What is in the measured path that the previous line did not have: the
   delivery decision record at the node's default level (every decision,
-  formatted as the text log would be, its output discarded), the envelope
+  formatted as a text log handler would, its output discarded), the envelope
   codec's bounds, and provin.oss 0.4.0's stricter reading of credentials and
   keys (duplicate keys folded by case, the safe-number range, small-order
   Ed25519 keys refused on every key read). Everything the harness excluded
   before is still excluded (transport, TLS, the ingress store's RPC, receipt
   issuance, the log's I/O).
 - Previous line: Paper 04's figures, measured at `4174829b7549` (the v0.3.0
-  line) on the same host, 2026-08-04. Where this table changes a published
-  number, the Paper 04 value is in the last column.
+  line) on the same host, 2026-08-04, as medians of 5 × 1 s in §1, 3 × 1 s in
+  §2–§4 and 3 × 5 s in §5. Where this table changes a published number, the
+  Paper 04 value is in the last column.
 
 ### 1. Depth — linear, ~133 µs per credential
 

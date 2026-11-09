@@ -136,12 +136,14 @@ func newCodec(tb testing.TB) *envelopecodec.Codec {
 }
 
 // newDecisionRecorder is the recorder at the node's default level (all) and
-// sink (log): every delivery decision is written as a record, and a record
-// that cannot be written refuses the delivery. The log entry is formatted as
-// the node's text log would be and then discarded, so the record's
+// sink (log): every delivery decision is written as a record, and an accepted
+// record that cannot be written refuses the delivery. The log entry is
+// formatted as a text log handler would and then discarded, so the record's
 // construction, filtering and formatting are in the measured path and the
 // log's I/O is not. (The log sink refuses a logger that takes no info
-// entries, so a discarding handler cannot stand in.)
+// entries, so a discarding handler cannot stand in.) The handler serialises
+// its writes under its own mutex, as the node's logger does; it is the
+// product's lock, not the harness's.
 func newDecisionRecorder(tb testing.TB) decisionrecord.Recorder {
 	tb.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
