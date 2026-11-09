@@ -20,11 +20,14 @@ lint:
 	gofmt -l . | tee /dev/stderr | (! read)
 
 ## verify-pin reports whether the required module revision matches pins.env.
+## A tagged version names its commit through the module's origin record
+## (go mod download -json); a pseudo-version carries the commit in its suffix.
 verify-pin:
 	@. ./pins.env; \
-	pseudo=$$($(GO) list -m -f '{{.Version}}' github.com/provin-line/oss); \
-	short=$${pseudo##*-}; \
+	version=$$($(GO) list -m -f '{{.Version}}' github.com/provin-line/oss); \
+	hash=$$($(GO) mod download -json github.com/provin-line/oss@$$version | sed -n 's/^[[:space:]]*"Hash": "\([0-9a-f]*\)".*/\1/p'); \
+	[ -n "$$hash" ] || hash=$${version##*-}; \
 	case "$$OSS_REF" in \
-		"$$short"*) echo "pin ok: $$OSS_REF (module $$pseudo)";; \
-		*) echo "PIN DRIFT: pins.env=$$OSS_REF module=$$pseudo"; exit 1;; \
+		"$$hash"*) echo "pin ok: $$OSS_REF (module $$version)";; \
+		*) echo "PIN DRIFT: pins.env=$$OSS_REF module=$$version at $$hash"; exit 1;; \
 	esac
